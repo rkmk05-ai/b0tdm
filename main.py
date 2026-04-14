@@ -1,4 +1,5 @@
 import discord
+from discord import app_commands
 import os
 import time
 from datetime import datetime, timedelta
@@ -35,6 +36,7 @@ async def forward_message(message, target_id):
         print(f"Error forwarding message: {e}")
 
 client = discord.Client(intents=intents)
+tree = app_commands.CommandTree(client)
 
 manual_mode = False
 ai_mode = False
@@ -44,10 +46,11 @@ captured_messages = []
 
 @client.event
 async def on_ready():
+    await tree.sync()
     print(f'Logged in as {client.user}')
     print(f'Listening to channel ID: {SOURCE_CHANNEL_ID}')
     print(f'Forwarding to channel ID: {TARGET_CHANNEL_ID}')
-    print('Bot is ready!')
+    print('Bot is ready! Slash commands synced.')
     print('Commands:')
     print('!manual - Toggle manual mode')
     print('!ai - Toggle AI mode')
@@ -261,26 +264,11 @@ async def on_message(message):
 
 
 if __name__ == "__main__":
-    while True:
-        try:
-            if not TOKEN:
-                print("Error: No Discord token found. Please add your bot token to the Secrets tab with the key 'DISCORD_TOKEN'")
-                print("Retrying in 60 seconds...")
-                time.sleep(60)
-                continue
-            if not os.getenv("GROQ_API_KEY"):
-                print("Error: No Groq API key found. Please add your Groq API key to the Secrets tab with the key 'GROQ_API_KEY'")
-                print("Retrying in 60 seconds...")
-                time.sleep(60)
-                continue
-            print("Starting bot...")
-            client.run(TOKEN)
-        except discord.errors.LoginFailure as e:
-            print(f"Login error: {e}. Check your token in Secrets.")
-            print("Retrying in 60 seconds...")
-            time.sleep(60)
-        except Exception as e:
-            print(f"An error occurred: {e}")
-            print("Restarting bot in 10 seconds...")
-            time.sleep(10)
+    if not TOKEN:
+        print("Error: No Discord token found. Please add DISCORD_TOKEN to Secrets.")
+    elif not os.getenv("GROQ_API_KEY"):
+        print("Error: No Groq API key found. Please add GROQ_API_KEY to Secrets.")
+    else:
+        print("Starting bot...")
+        client.run(TOKEN)
              
