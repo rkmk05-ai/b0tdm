@@ -19,9 +19,13 @@ intents.messages = True
 intents.guilds = True
 intents.message_content = True
 intents.members = True
+intents.moderation = True
 
 OWNER_ID = 716983514565705749
-warnings = {}  # {user_id: [list of warning reasons]}
+warnings = {}
+punishment_id = 0
+PUNISH_LOG_CHANNEL = 1494088216003870830
+THREAD_LOG_CHANNEL = 1494088651146264656
 
 async def forward_message(message, target_id):
     try:
@@ -34,6 +38,45 @@ async def forward_message(message, target_id):
             print(f"Error: Target channel with ID {target_id} not found.")
     except Exception as e:
         print(f"Error forwarding message: {e}")
+
+async def log_punishment(punishment_type, user, moderator, length, reason):
+    global punishment_id
+    punishment_id += 1
+    pid = punishment_id
+
+    log_channel = client.get_channel(PUNISH_LOG_CHANNEL)
+    thread_channel = client.get_channel(THREAD_LOG_CHANNEL)
+
+    log_msg = (
+        f"*{punishment_type} #{pid}*\n"
+        f"**Username** `{user}`\n"
+        f"**User ID:** `{user.id}`\n"
+        f"**Moderator Username:** `{moderator}`\n"
+        f"**Punishment Type:** `{punishment_type}`\n"
+        f"**Length:** `{length}`\n"
+        f"**Reason:** `{reason}`"
+    )
+
+    thread_body = (
+        f"**Username** `{user}`\n"
+        f"**User ID:** `{user.id}`\n"
+        f"**Length:** `{length}`\n"
+        f"**Reason:** `{reason}`\n"
+        f"**Proof:**"
+    )
+
+    try:
+        if log_channel:
+            await log_channel.send(log_msg)
+        if thread_channel:
+            thread_name = f"#{punishment_type} #{pid} - {user}"
+            thread = await thread_channel.create_thread(
+                name=thread_name[:100],
+                type=discord.ChannelType.public_thread
+            )
+            await thread.send(thread_body)
+    except Exception as e:
+        print(f"Logging error: {e}")
 
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
@@ -140,6 +183,7 @@ async def ban(interaction: discord.Interaction, member: discord.Member, reason: 
     try:
         await member.ban(reason=reason)
         await interaction.response.send_message(f"Banned **{member}** — Reason: {reason}", ephemeral=True)
+        await log_punishment("Ban", member, interaction.user, "N/A", reason)
     except discord.Forbidden:
         await interaction.response.send_message("I don't have permission to ban that member.", ephemeral=True)
     except Exception as e:
@@ -153,6 +197,7 @@ async def kick(interaction: discord.Interaction, member: discord.Member, reason:
     try:
         await member.kick(reason=reason)
         await interaction.response.send_message(f"Kicked **{member}** — Reason: {reason}", ephemeral=True)
+        await log_punishment("Kick", member, interaction.user, "N/A", reason)
     except discord.Forbidden:
         await interaction.response.send_message("I don't have permission to kick that member.", ephemeral=True)
     except Exception as e:
@@ -168,6 +213,7 @@ async def warn(interaction: discord.Interaction, member: discord.Member, reason:
     warnings[member.id].append(reason)
     count = len(warnings[member.id])
     await interaction.response.send_message(f"Warned **{member}** (Warning #{count}) — Reason: {reason}", ephemeral=True)
+    await log_punishment("Warn", member, interaction.user, "N/A", reason)
     try:
         await member.send(f"You have been warned in **{interaction.guild.name}**.\nReason: {reason}\nTotal warnings: {count}")
     except Exception:
@@ -185,6 +231,8 @@ async def timeout(interaction: discord.Interaction, member: discord.Member, days
         capped = min(total_minutes, 40320)
         until = discord.utils.utcnow() + timedelta(minutes=capped)
         await member.timeout(until, reason=reason)
+        unix_ts = int(until.timestamp())
+        length_ts = f"<t:{unix_ts}:F> (<t:{unix_ts}:R>)"
         if capped == 40320 and total_minutes >= 40320:
             duration_text = "28 days (maximum)"
         else:
@@ -194,6 +242,7 @@ async def timeout(interaction: discord.Interaction, member: discord.Member, days
             if minutes: parts.append(f"{minutes}m")
             duration_text = " ".join(parts) if parts else f"{capped} minutes"
         await interaction.response.send_message(f"Timed out **{member}** for {duration_text} — Reason: {reason}", ephemeral=True)
+        await log_punishment("Timeout", member, interaction.user, length_ts, reason)
     except discord.Forbidden:
         await interaction.response.send_message("I don't have permission to timeout that member.", ephemeral=True)
     except Exception as e:
@@ -210,6 +259,36 @@ async def view_warnings(interaction: discord.Interaction, member: discord.Member
     else:
         warning_list = "\n".join([f"{i+1}. {w}" for i, w in enumerate(user_warnings)])
         await interaction.response.send_message(f"**{member}** has {len(user_warnings)} warning(s):\n{warning_list}", ephemeral=True)
+
+@client.event
+async def on_audit_log_entry_create(entry: discord.AuditLogEntry):
+    mod = entry.user
+    target = entry.target
+    reason = entry.reason or "No reason provided"
+
+    if entry.action == discord.AuditLogAction.ban:
+        if mod and not mod.bot:
+            await log_punishment("Ban", target, mod, "N/A", reason)
+
+    elif entry.action == discord.AuditLogAction.unban:
+        if mod and not mod.bot:
+            await log_punishment("Unban", target, mod, "N/A", reason)
+
+    elif entry.action == discord.AuditLogAction.kick:
+        if mod and not mod.bot:
+            await log_punishment("Kick", target, mod, "N/A", reason)
+
+    elif entry.action == discord.AuditLogAction.member_update:
+        after = entry.after
+        before = entry.before
+        if hasattr(after, 'timed_out_until') and hasattr(before, 'timed_out_until'):
+            if mod and not mod.bot:
+                if after.timed_out_until is not None and (before.timed_out_until is None or before.timed_out_until < after.timed_out_until):
+                    unix_ts = int(after.timed_out_until.timestamp())
+                    length_ts = f"<t:{unix_ts}:F> (<t:{unix_ts}:R>)"
+                    await log_punishment("Timeout", target, mod, length_ts, reason)
+                elif after.timed_out_until is None and before.timed_out_until is not None:
+                    await log_punishment("Untimeout", target, mod, "N/A", reason)
 
 @client.event
 async def on_message(message):
