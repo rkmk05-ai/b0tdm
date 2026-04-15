@@ -53,14 +53,14 @@ async def log_punishment(punishment_type, user, moderator, length, reason):
         f"**User ID:** `{user.id}`\n"
         f"**Moderator Username:** `{moderator}`\n"
         f"**Punishment Type:** `{punishment_type}`\n"
-        f"**Length:** `{length}`\n"
+        f"**Length:**  {length}
         f"**Reason:** `{reason}`"
     )
 
     thread_body = (
         f"**Username** `{user}`\n"
         f"**User ID:** `{user.id}`\n"
-        f"**Length:** `{length}`\n"
+        f"**Length:**  {length}
         f"**Reason:** `{reason}`\n"
         f"**Proof:**"
     )
