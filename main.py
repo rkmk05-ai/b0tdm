@@ -88,30 +88,37 @@ def generate_html(messages_list):
 </html>"""
     return html
 
-def owner_only(interaction: discord.Interaction) -> bool:
-    return interaction.user.id == OWNER_ID
-
 @tree.command(name="ban", description="Ban a member from the server")
-@app_commands.check(owner_only)
 async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
+    if interaction.user.id != OWNER_ID:
+        await interaction.response.send_message("You are not authorized to use this command.", ephemeral=True)
+        return
     try:
         await member.ban(reason=reason)
         await interaction.response.send_message(f"Banned **{member}** — Reason: {reason}", ephemeral=True)
     except discord.Forbidden:
         await interaction.response.send_message("I don't have permission to ban that member.", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"Error: {e}", ephemeral=True)
 
 @tree.command(name="kick", description="Kick a member from the server")
-@app_commands.check(owner_only)
 async def kick(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
+    if interaction.user.id != OWNER_ID:
+        await interaction.response.send_message("You are not authorized to use this command.", ephemeral=True)
+        return
     try:
         await member.kick(reason=reason)
         await interaction.response.send_message(f"Kicked **{member}** — Reason: {reason}", ephemeral=True)
     except discord.Forbidden:
         await interaction.response.send_message("I don't have permission to kick that member.", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"Error: {e}", ephemeral=True)
 
 @tree.command(name="warn", description="Warn a member")
-@app_commands.check(owner_only)
 async def warn(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
+    if interaction.user.id != OWNER_ID:
+        await interaction.response.send_message("You are not authorized to use this command.", ephemeral=True)
+        return
     if member.id not in warnings:
         warnings[member.id] = []
     warnings[member.id].append(reason)
@@ -123,33 +130,30 @@ async def warn(interaction: discord.Interaction, member: discord.Member, reason:
         pass
 
 @tree.command(name="timeout", description="Timeout a member")
-@app_commands.check(owner_only)
 async def timeout(interaction: discord.Interaction, member: discord.Member, minutes: int, reason: str = "No reason provided"):
+    if interaction.user.id != OWNER_ID:
+        await interaction.response.send_message("You are not authorized to use this command.", ephemeral=True)
+        return
     try:
         until = discord.utils.utcnow() + timedelta(minutes=minutes)
         await member.timeout(until, reason=reason)
         await interaction.response.send_message(f"Timed out **{member}** for {minutes} minute(s) — Reason: {reason}", ephemeral=True)
     except discord.Forbidden:
         await interaction.response.send_message("I don't have permission to timeout that member.", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"Error: {e}", ephemeral=True)
 
 @tree.command(name="warnings", description="View warnings for a member")
-@app_commands.check(owner_only)
 async def view_warnings(interaction: discord.Interaction, member: discord.Member):
+    if interaction.user.id != OWNER_ID:
+        await interaction.response.send_message("You are not authorized to use this command.", ephemeral=True)
+        return
     user_warnings = warnings.get(member.id, [])
     if not user_warnings:
         await interaction.response.send_message(f"**{member}** has no warnings.", ephemeral=True)
     else:
         warning_list = "\n".join([f"{i+1}. {w}" for i, w in enumerate(user_warnings)])
         await interaction.response.send_message(f"**{member}** has {len(user_warnings)} warning(s):\n{warning_list}", ephemeral=True)
-
-@ban.error
-@kick.error
-@warn.error
-@timeout.error
-@view_warnings.error
-async def mod_error(interaction: discord.Interaction, error):
-    if isinstance(error, app_commands.CheckFailure):
-        await interaction.response.send_message("You are not authorized to use this command.", ephemeral=True)
 
 @client.event
 async def on_message(message):
