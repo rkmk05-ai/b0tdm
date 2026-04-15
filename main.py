@@ -68,16 +68,25 @@ async def log_punishment(punishment_type, user, moderator, length, reason):
     try:
         if log_channel:
             await log_channel.send(log_msg)
+            print(f"[LOG] Sent punishment log to channel {PUNISH_LOG_CHANNEL}")
+        else:
+            print(f"[LOG] Could not find log channel {PUNISH_LOG_CHANNEL}")
+
+        thread_channel = client.get_channel(THREAD_LOG_CHANNEL)
         if thread_channel:
             thread_name = f"#{punishment_type} #{pid} - {user}"
-            seed_msg = await thread_channel.send(thread_name)
-            thread = await seed_msg.create_thread(
+            result = await thread_channel.create_thread(
                 name=thread_name[:100],
-                auto_archive_duration=10080
+                content=thread_body
             )
-            await thread.send(thread_body)
+            thread_post = result.thread
+            print(f"[LOG] Forum thread created: {thread_post.id} — {thread_post.name}")
+        else:
+            print(f"[LOG] Could not find thread channel {THREAD_LOG_CHANNEL}")
     except Exception as e:
+        import traceback
         print(f"Logging error: {e}")
+        traceback.print_exc()
 
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
@@ -176,46 +185,62 @@ async def commands_slash(interaction: discord.Interaction):
         embed.add_field(name=cmd, value=desc, inline=False)
     await interaction.response.send_message(embed=embed, view=CommandView(), ephemeral=True)
 
+async def safe_defer(interaction):
+    try:
+        await interaction.response.defer(ephemeral=True)
+        return True
+    except Exception:
+        return False
+
+async def safe_reply(interaction, deferred, content):
+    try:
+        if deferred:
+            await interaction.followup.send(content, ephemeral=True)
+        else:
+            await interaction.response.send_message(content, ephemeral=True)
+    except Exception:
+        pass
+
 @tree.command(name="ban", description="Ban a member from the server")
 async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
     if interaction.user.id != OWNER_ID:
-        await interaction.response.send_message("You are not authorized to use this command.", ephemeral=True)
+        await safe_reply(interaction, False, "You are not authorized to use this command.")
         return
-    await interaction.response.defer(ephemeral=True)
+    deferred = await safe_defer(interaction)
     try:
         await member.ban(reason=reason)
-        await interaction.followup.send(f"Banned **{member}** — Reason: {reason}", ephemeral=True)
+        await safe_reply(interaction, deferred, f"Banned **{member}** — Reason: {reason}")
         await log_punishment("Ban", member, interaction.user, "N/A", reason)
     except discord.Forbidden:
-        await interaction.followup.send("I don't have permission to ban that member.", ephemeral=True)
+        await safe_reply(interaction, deferred, "I don't have permission to ban that member.")
     except Exception as e:
-        await interaction.followup.send(f"Error: {e}", ephemeral=True)
+        await safe_reply(interaction, deferred, f"Error: {e}")
 
 @tree.command(name="kick", description="Kick a member from the server")
 async def kick(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
     if interaction.user.id != OWNER_ID:
-        await interaction.response.send_message("You are not authorized to use this command.", ephemeral=True)
+        await safe_reply(interaction, False, "You are not authorized to use this command.")
         return
-    await interaction.response.defer(ephemeral=True)
+    deferred = await safe_defer(interaction)
     try:
         await member.kick(reason=reason)
-        await interaction.followup.send(f"Kicked **{member}** — Reason: {reason}", ephemeral=True)
+        await safe_reply(interaction, deferred, f"Kicked **{member}** — Reason: {reason}")
         await log_punishment("Kick", member, interaction.user, "N/A", reason)
     except discord.Forbidden:
-        await interaction.followup.send("I don't have permission to kick that member.", ephemeral=True)
+        await safe_reply(interaction, deferred, "I don't have permission to kick that member.")
     except Exception as e:
-        await interaction.followup.send(f"Error: {e}", ephemeral=True)
+        await safe_reply(interaction, deferred, f"Error: {e}")
 
 @tree.command(name="warn", description="Warn a member")
 async def warn(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
     if interaction.user.id != OWNER_ID:
-        await interaction.response.send_message("You are not authorized to use this command.", ephemeral=True)
+        await safe_reply(interaction, False, "You are not authorized to use this command.")
         return
     if member.id not in warnings:
         warnings[member.id] = []
     warnings[member.id].append(reason)
     count = len(warnings[member.id])
-    await interaction.response.send_message(f"Warned **{member}** (Warning #{count}) — Reason: {reason}", ephemeral=True)
+    await safe_reply(interaction, False, f"Warned **{member}** (Warning #{count}) — Reason: {reason}")
     await log_punishment("Warn", member, interaction.user, "N/A", reason)
     try:
         await member.send(f"You have been warned in **{interaction.guild.name}**.\nReason: {reason}\nTotal warnings: {count}")
@@ -225,9 +250,9 @@ async def warn(interaction: discord.Interaction, member: discord.Member, reason:
 @tree.command(name="timeout", description="Timeout a member (leave all blank for max 28 days)")
 async def timeout(interaction: discord.Interaction, member: discord.Member, days: int = 0, hours: int = 0, minutes: int = 0, reason: str = "No reason provided"):
     if interaction.user.id != OWNER_ID:
-        await interaction.response.send_message("You are not authorized to use this command.", ephemeral=True)
+        await safe_reply(interaction, False, "You are not authorized to use this command.")
         return
-    await interaction.response.defer(ephemeral=True)
+    deferred = await safe_defer(interaction)
     try:
         total_minutes = days * 1440 + hours * 60 + minutes
         if total_minutes == 0:
@@ -245,12 +270,49 @@ async def timeout(interaction: discord.Interaction, member: discord.Member, days
             if hours: parts.append(f"{hours}h")
             if minutes: parts.append(f"{minutes}m")
             duration_text = " ".join(parts) if parts else f"{capped} minutes"
-        await interaction.followup.send(f"Timed out **{member}** for {duration_text} — Reason: {reason}", ephemeral=True)
+        await safe_reply(interaction, deferred, f"Timed out **{member}** for {duration_text} — Reason: {reason}")
         await log_punishment("Timeout", member, interaction.user, length_ts, reason)
     except discord.Forbidden:
-        await interaction.followup.send("I don't have permission to timeout that member.", ephemeral=True)
+        await safe_reply(interaction, deferred, "I don't have permission to timeout that member.")
     except Exception as e:
-        await interaction.followup.send(f"Error: {e}", ephemeral=True)
+        await safe_reply(interaction, deferred, f"Error: {e}")
+
+@tree.command(name="unban", description="Unban a user by their ID")
+async def unban(interaction: discord.Interaction, user_id: str, reason: str = "No reason provided"):
+    if interaction.user.id != OWNER_ID:
+        await safe_reply(interaction, False, "You are not authorized to use this command.")
+        return
+    deferred = await safe_defer(interaction)
+    try:
+        uid = int(user_id)
+        user = discord.Object(id=uid)
+        await interaction.guild.unban(user, reason=reason)
+        await safe_reply(interaction, deferred, f"Unbanned user `{uid}` — Reason: {reason}")
+        fetched = await client.fetch_user(uid)
+        await log_punishment("Unban", fetched, interaction.user, "N/A", reason)
+    except ValueError:
+        await safe_reply(interaction, deferred, "Invalid user ID — must be a number.")
+    except discord.NotFound:
+        await safe_reply(interaction, deferred, "That user is not banned.")
+    except discord.Forbidden:
+        await safe_reply(interaction, deferred, "I don't have permission to unban that user.")
+    except Exception as e:
+        await safe_reply(interaction, deferred, f"Error: {e}")
+
+@tree.command(name="untimeout", description="Remove a timeout from a member")
+async def untimeout(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
+    if interaction.user.id != OWNER_ID:
+        await safe_reply(interaction, False, "You are not authorized to use this command.")
+        return
+    deferred = await safe_defer(interaction)
+    try:
+        await member.timeout(None, reason=reason)
+        await safe_reply(interaction, deferred, f"Removed timeout from **{member}** — Reason: {reason}")
+        await log_punishment("Untimeout", member, interaction.user, "N/A", reason)
+    except discord.Forbidden:
+        await safe_reply(interaction, deferred, "I don't have permission to remove that timeout.")
+    except Exception as e:
+        await safe_reply(interaction, deferred, f"Error: {e}")
 
 @tree.command(name="warnings", description="View warnings for a member")
 async def view_warnings(interaction: discord.Interaction, member: discord.Member):
