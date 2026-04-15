@@ -88,6 +88,50 @@ def generate_html(messages_list):
 </html>"""
     return html
 
+COMMANDS_INFO = {
+    "/ban": "Ban a member from the server",
+    "/kick": "Kick a member from the server",
+    "/warn": "Warn a member (sends them a DM)",
+    "/timeout": "Timeout a member for X minutes",
+    "/warnings": "View all warnings for a member",
+    "!manual": "Toggle manual forwarding mode",
+    "!ai": "Toggle AI auto-reply mode",
+    "!view": "View last 10 messages from source channel",
+    "!forward": "Manually forward a message (manual mode only)",
+    "!intelligence": "Start/stop capturing messages and export to HTML",
+    "!exportall": "Export ALL server messages to an HTML file",
+}
+
+class CommandSelect(discord.ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label=cmd, description=desc[:100])
+            for cmd, desc in COMMANDS_INFO.items()
+        ]
+        super().__init__(placeholder="Select a command to learn more...", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        cmd = self.values[0]
+        desc = COMMANDS_INFO[cmd]
+        embed = discord.Embed(title=cmd, description=desc, color=0x7289da)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+class CommandView(discord.ui.View):
+    def __init__(self):
+        super().__init__()
+        self.add_item(CommandSelect())
+
+@tree.command(name="commands", description="View all available bot commands")
+async def commands_slash(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="Bot Commands",
+        description="Select a command from the dropdown to learn more.",
+        color=0x7289da
+    )
+    for cmd, desc in COMMANDS_INFO.items():
+        embed.add_field(name=cmd, value=desc, inline=False)
+    await interaction.response.send_message(embed=embed, view=CommandView(), ephemeral=True)
+
 @tree.command(name="ban", description="Ban a member from the server")
 async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
     if interaction.user.id != OWNER_ID:
