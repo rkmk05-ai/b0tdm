@@ -173,15 +173,27 @@ async def warn(interaction: discord.Interaction, member: discord.Member, reason:
     except Exception:
         pass
 
-@tree.command(name="timeout", description="Timeout a member")
-async def timeout(interaction: discord.Interaction, member: discord.Member, minutes: int, reason: str = "No reason provided"):
+@tree.command(name="timeout", description="Timeout a member (leave all blank for max 28 days)")
+async def timeout(interaction: discord.Interaction, member: discord.Member, days: int = 0, hours: int = 0, minutes: int = 0, reason: str = "No reason provided"):
     if interaction.user.id != OWNER_ID:
         await interaction.response.send_message("You are not authorized to use this command.", ephemeral=True)
         return
     try:
-        until = discord.utils.utcnow() + timedelta(minutes=minutes)
+        total_minutes = days * 1440 + hours * 60 + minutes
+        if total_minutes == 0:
+            total_minutes = 40320
+        capped = min(total_minutes, 40320)
+        until = discord.utils.utcnow() + timedelta(minutes=capped)
         await member.timeout(until, reason=reason)
-        await interaction.response.send_message(f"Timed out **{member}** for {minutes} minute(s) — Reason: {reason}", ephemeral=True)
+        if capped == 40320 and total_minutes >= 40320:
+            duration_text = "28 days (maximum)"
+        else:
+            parts = []
+            if days: parts.append(f"{days}d")
+            if hours: parts.append(f"{hours}h")
+            if minutes: parts.append(f"{minutes}m")
+            duration_text = " ".join(parts) if parts else f"{capped} minutes"
+        await interaction.response.send_message(f"Timed out **{member}** for {duration_text} — Reason: {reason}", ephemeral=True)
     except discord.Forbidden:
         await interaction.response.send_message("I don't have permission to timeout that member.", ephemeral=True)
     except Exception as e:
